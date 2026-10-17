@@ -3,6 +3,27 @@
 const version = 3;
 var isOnline = true;
 var isLoggedIn = false;
+var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
+// When version number updates, all cached items are gonna re cached under a new cache name and the old caches are gonna go away
+
+// Here according to Kyle we donot have to specify extension for pages like about.html etc since the server is doing URL rewriting
+var urlsToCache = {
+  loggedOut: [
+    "/",
+    "/about",
+    "/contact",
+    "/404",
+    "/login",
+    "/offline",
+    "/js/blog.js",
+    "/js/home.js",
+    "/js/login.js",
+    "/js/add-post.js",
+    "/css/styles.css",
+    "/images/logo.gif",
+    "/images/",
+  ],
+};
 
 self.addEventListener("install", onInstall);
 self.addEventListener("activate", onActivate);

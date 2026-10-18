@@ -1,6 +1,6 @@
 "use strict";
 
-const version = 3;
+const version = 5;
 var isOnline = true;
 var isLoggedIn = false;
 var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
@@ -80,9 +80,28 @@ async function onActivate(evt) {
 }
 
 async function handleActivation() {
-  await clients.claim();
+  // We clear the old cache here because when a service worker is activated, we for sure know that the old one is deleted
+  await clearCaches();
   await cacheLoggedOutFiles(/*forceReload=*/ true); // This is saying i donot care if there are stuffs in the cache, just get it fresh
+  await clients.claim();
   console.log(`Service Worker (${version}) is activated.`);
+}
+
+async function clearCaches() {
+  var cacheNames = await caches.keys();
+  var oldCacheNames = cacheNames.filter(function matchOldCache(cacheName) {
+    if (/^ramblings-\d+$/.test(cacheName)) {
+      let [, cacheVersion] = cacheName.match(/^ramblings-(\d+)$/);
+      cacheVersion = cacheVersion != null ? Number(cacheVersion) : cacheVersion;
+      return cacheVersion > 0 && cacheVersion != version;
+    }
+  });
+
+  return Promise.all(
+    oldCacheNames.map(function deleteCache(cacheName) {
+      return caches.delete(cacheName);
+    }),
+  );
 }
 
 async function cacheLoggedOutFiles(forceReload = false) {

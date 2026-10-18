@@ -19,7 +19,7 @@ var urlsToCache = {
     "/js/home.js",
     "/js/login.js",
     "/js/add-post.js",
-    "/css/styles.css",
+    "/css/style.css",
     "/images/logo.gif",
     "/images/",
   ],
@@ -37,6 +37,8 @@ async function main() {
   console.log(`Service Worker (${version}) is starting...`);
   //   Requesting for online and logged in status informations
   await sendMessage({ requestStatusUpdate: true });
+  // Also cache the responses whenever we restart the service worker in case we have anything missing from the cache
+  await cacheLoggedOutFiles();
 }
 
 async function onInstall(evt) {
@@ -79,5 +81,38 @@ async function onActivate(evt) {
 
 async function handleActivation() {
   await clients.claim();
+  await cacheLoggedOutFiles(/*forceReload=*/ true); // This is saying i donot care if there are stuffs in the cache, just get it fresh
   console.log(`Service Worker (${version}) is activated.`);
+}
+
+async function cacheLoggedOutFiles(forceReload = false) {
+  // 1. Open the cache entry up so that we can start pushing stuff to it
+  var cache = await caches.open(cacheName);
+
+  return Promise.all(
+    urlsToCache.loggedOut.map(async function requestFile(url) {
+      // We want to use a try catch block so as to account for some kind of network errors
+      // and we donot want this to crash
+      try {
+        let res;
+        // If we have not asked to do a forced reload, then we should not unnecessarily cache these logged out files again
+        // In some cases we want to forcibly ask for all of them and in other cases, we only just want to check if there are any that are not cached
+        if (!forceReload) {
+          res = await cache.match(url);
+          if (res) return res;
+        }
+
+        let fetchOptions = {
+          method: "GET",
+          cache: "no-cache", // This is saying to the browser layer, donot store this response in your intermdediary cache, we want fresh results, if set to true service worker might get result from browser cache
+          credentials: "omit",
+        };
+
+        res = await fetch(url, fetchOptions);
+        if (res.ok) {
+          await cache.put(url, res.clone()); // You cannot put the response into the cache but have to clone it
+        }
+      } catch (err) {}
+    }),
+  );
 }

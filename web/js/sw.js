@@ -87,30 +87,112 @@ async function router(req) {
   var cache = await caches.open(cacheName);
 
   // To only deal with routing with requests to our own server, we have to look at the origin property of these URLs
+  // request for site's own URL
   if (url.origin === location.origin) {
-    let res;
-    try {
-      let fetchOptions = {
-        method: req.method, // The inbound request method can be anything like GET, POST etc
-        headers: req.headers,
-        credentials: "omit",
-        cache: "no-store",
-      };
-      res = await fetch(req.url, fetchOptions);
-      if (res && res.ok) {
-        await cache.put(reqURL, res.clone);
-        // We return the res here because we are doing evt.respondWith()
-        return res;
-      }
-    } catch (err) {}
+    // are we making an API request?
+    if (/^\/api\/.+$/.test(reqURL)) {
+      // checks if reqURL starts with /api/ and has at least one character after it
+      let res;
+      if (isOnline) {
+        try {
+          let fetchOptions = {
+            method: req.method,
+            headers: req.headers,
+            credentials: "same-origin", // same-origin because some api calls do include the session cookie in it
+            cache: "no-store",
+          };
 
-    res = await cache.match(reqURL); // This is asking if the request is in the cache
-    if (res) {
-      console.log(`responding from the cache for the request ${reqURL}`);
-      return res.clone(); // We returning the clone since we want to keep the response in the cache for future requests
+          res = await fetch(req.url, fetchOptions);
+
+          if (res && res.ok) {
+            if (req.method == "GET") {
+              await cache.put(reqURL, res.clone());
+            }
+            return res;
+          }
+        } catch (err) {}
+
+        res = await cache.match(reqURL);
+        if (res) {
+          return res;
+        }
+
+        return notFoundResponse(); // This is like a network level 404
+      }
+    }
+
+    // are we requesting a page?
+    else if (req.headers.get("Accept").includes("text/html")) {
+      // login aware requests?
+      if (/^\/(?:login|logout|add-post)$/.test(reqURL)) {
+        // TODO:
+      }
+      // otherwise just use "network and cache"
+      else {
+        let res;
+        if (isOnline) {
+          try {
+            // Here credentials is not used in fetch options since to get any pages credentials are not required
+            let fetchOptions = {
+              method: req.method,
+              headers: req.headers,
+              cache: "no-store",
+            };
+            res = await fetch(reqURL, fetchOptions);
+            if (res && res.ok) {
+              if (!res.headers.get("X-Not-Found")) {
+                await cache.put(reqURL, res.clone());
+              }
+              return res;
+            }
+          } catch (err) {}
+        }
+
+        // failed fetch, so try cache
+        res = await cache.match(reqURL);
+        if (res) {
+          return res;
+        }
+
+        // otherwise return an offline friendly page
+        return cache.match("/offline");
+      }
+    }
+    // all other files use "cache first"
+    else {
+      let res = await cache.match(reqURL);
+      if (res) {
+        return res;
+      } else {
+        if (isOnline) {
+          try {
+            // Here credentials is not used in fetch options since to get any pages credentials are not required
+            let fetchOptions = {
+              method: req.method,
+              headers: req.headers,
+              cache: "no-store",
+            };
+            res = await fetch(reqURL, fetchOptions);
+            if (res && res.ok) {
+              await cache.put(reqURL, res.clone());
+
+              return res;
+            }
+          } catch (err) {}
+        }
+
+        return notFoundResponse();
+      }
     }
   }
   // TODO: Figure out CORS requests
+}
+
+function notFoundResponse() {
+  return new Response("", {
+    status: 404,
+    statusText: "Not Found",
+  });
 }
 
 async function onActivate(evt) {

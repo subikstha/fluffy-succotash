@@ -1,6 +1,6 @@
 "use strict";
 
-const version = 5;
+const version = 6;
 var isOnline = true;
 var isLoggedIn = false;
 var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
@@ -82,9 +82,9 @@ function onFetch(evt) {
 }
 
 async function router(req) {
-  var url = URL(req.url);
+  var url = new URL(req.url);
   var reqURL = url.pathname; // This gets just the slash (/) parth of the url
-  var cache = await caches.open();
+  var cache = await caches.open(cacheName);
 
   // To only deal with routing with requests to our own server, we have to look at the origin property of these URLs
   if (url.origin === location.origin) {
@@ -106,6 +106,7 @@ async function router(req) {
 
     res = await cache.match(reqURL); // This is asking if the request is in the cache
     if (res) {
+      console.log(`responding from the cache for the request ${reqURL}`);
       return res.clone(); // We returning the clone since we want to keep the response in the cache for future requests
     }
   }

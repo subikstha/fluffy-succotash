@@ -28,6 +28,7 @@ var urlsToCache = {
 self.addEventListener("install", onInstall);
 self.addEventListener("activate", onActivate);
 self.addEventListener("message", onMessage);
+self.addEventListener("fetch", onFetch);
 
 main().catch(console.error);
 
@@ -73,6 +74,42 @@ function onMessage({ data }) {
       `Service Worker (v${version}) status update, isOnline: ${isOnline}, isLoggedIn: ${isLoggedIn}`,
     );
   }
+}
+
+// This request is inbound coming from the page through our service worker
+function onFetch(evt) {
+  evt.respondWith(router(evt.request));
+}
+
+async function router(req) {
+  var url = URL(req.url);
+  var reqURL = url.pathname; // This gets just the slash (/) parth of the url
+  var cache = await caches.open();
+
+  // To only deal with routing with requests to our own server, we have to look at the origin property of these URLs
+  if (url.origin === location.origin) {
+    let res;
+    try {
+      let fetchOptions = {
+        method: req.method, // The inbound request method can be anything like GET, POST etc
+        headers: req.headers,
+        credentials: "omit",
+        cache: "no-store",
+      };
+      res = await fetch(req.url, fetchOptions);
+      if (res && res.ok) {
+        await cache.put(reqURL, res.clone);
+        // We return the res here because we are doing evt.respondWith()
+        return res;
+      }
+    } catch (err) {}
+
+    res = await cache.match(reqURL); // This is asking if the request is in the cache
+    if (res) {
+      return res.clone(); // We returning the clone since we want to keep the response in the cache for future requests
+    }
+  }
+  // TODO: Figure out CORS requests
 }
 
 async function onActivate(evt) {

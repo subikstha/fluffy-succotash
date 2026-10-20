@@ -1,6 +1,6 @@
 "use strict";
 
-const version = 6;
+const version = 7;
 var isOnline = true;
 var isLoggedIn = false;
 var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
@@ -92,100 +92,180 @@ async function router(req) {
     // are we making an API request?
     if (/^\/api\/.+$/.test(reqURL)) {
       // checks if reqURL starts with /api/ and has at least one character after it
-      let res;
-      if (isOnline) {
-        try {
-          let fetchOptions = {
-            method: req.method,
-            headers: req.headers,
-            credentials: "same-origin", // same-origin because some api calls do include the session cookie in it
-            cache: "no-store",
-          };
+      let res = await safeRequest(
+        reqURL,
+        req,
+        fetchOptions,
+        /*cacheResponse=*/ false, // This is telling donot handle the caching, i will handle it (here handled in line 105)
+        /*checkCacheFirst=*/ false,
+        /*checkCacheLast=*/ true,
+        /*useRequestDirectly=*/ true,
+      );
 
-          res = await fetch(req.url, fetchOptions);
-
-          if (res && res.ok) {
-            if (req.method == "GET") {
-              await cache.put(reqURL, res.clone());
-            }
-            return res;
-          }
-        } catch (err) {}
-
-        res = await cache.match(reqURL);
-        if (res) {
-          return res;
+      if (res) {
+        if (req.method == "GET") {
+          await cache.put(reqURL, res.clone());
         }
-
-        return notFoundResponse(); // This is like a network level 404
+        return res;
       }
+
+      return notFoundResponse();
+      // if (isOnline) {
+      //   try {
+      //     let fetchOptions = {
+      //       method: req.method,
+      //       headers: req.headers,
+      //       credentials: "same-origin", // same-origin because some api calls do include the session cookie in it
+      //       cache: "no-store",
+      //     };
+
+      //     res = await fetch(req.url, fetchOptions);
+
+      //     if (res && res.ok) {
+      //       if (req.method == "GET") {
+      //         await cache.put(reqURL, res.clone());
+      //       }
+      //       return res;
+      //     }
+      //   } catch (err) {}
+
+      //   res = await cache.match(reqURL);
+      //   if (res) {
+      //     return res;
+      //   }
+
+      //   return notFoundResponse(); // This is like a network level 404
+      // }
     }
 
     // are we requesting a page?
     else if (req.headers.get("Accept").includes("text/html")) {
+      console.log("Requesting a page");
       // login aware requests?
       if (/^\/(?:login|logout|add-post)$/.test(reqURL)) {
         // TODO:
       }
       // otherwise just use "network and cache"
       else {
-        let res;
-        if (isOnline) {
-          try {
-            // Here credentials is not used in fetch options since to get any pages credentials are not required
-            let fetchOptions = {
-              method: req.method,
-              headers: req.headers,
-              cache: "no-store",
-            };
-            res = await fetch(reqURL, fetchOptions);
-            if (res && res.ok) {
-              if (!res.headers.get("X-Not-Found")) {
-                await cache.put(reqURL, res.clone());
-              }
-              return res;
-            }
-          } catch (err) {}
-        }
+        let fetchOptions = {
+          method: req.method,
+          headers: req.headers,
+          cache: "no-store",
+        };
+        let res = await safeRequest(
+          reqURL,
+          req,
+          fetchOptions,
+          false,
+          false,
+          true,
+          false,
+        );
 
-        // failed fetch, so try cache
-        res = await cache.match(reqURL);
         if (res) {
+          if (!res.headers.get("X-Not-Found")) {
+            await cache.put(reqURL, res.clone());
+          }
           return res;
         }
 
         // otherwise return an offline friendly page
         return cache.match("/offline");
+        // if (isOnline) {
+        //   try {
+        //     // Here credentials is not used in fetch options since to get any pages credentials are not required
+        //     let fetchOptions = {
+        //       method: req.method,
+        //       headers: req.headers,
+        //       cache: "no-store",
+        //     };
+        //     res = await fetch(reqURL, fetchOptions);
+        //     if (res && res.ok) {
+        //       if (!res.headers.get("X-Not-Found")) {
+        //         await cache.put(reqURL, res.clone());
+        //       }
+        //       return res;
+        //     }
+        //   } catch (err) {}
+        // }
+
+        // // failed fetch, so try cache
+        // res = await cache.match(reqURL);
+        // if (res) {
+        //   return res;
+        // }
+
+        // // otherwise return an offline friendly page
+        // return cache.match("/offline");
       }
     }
     // all other files use "cache first"
     else {
-      let res = await cache.match(reqURL);
+      let fetchOptions = {
+        method: req.method,
+        headers: req.headers,
+        cache: "no-store",
+      };
+      let res = await safeRequest(
+        reqURL,
+        req,
+        fetchOptions,
+        /*cacheResponse=*/ true,
+        /*checkCacheFirst=*/ true,
+      );
       if (res) {
         return res;
-      } else {
-        if (isOnline) {
-          try {
-            // Here credentials is not used in fetch options since to get any pages credentials are not required
-            let fetchOptions = {
-              method: req.method,
-              headers: req.headers,
-              cache: "no-store",
-            };
-            res = await fetch(reqURL, fetchOptions);
-            if (res && res.ok) {
-              await cache.put(reqURL, res.clone());
-
-              return res;
-            }
-          } catch (err) {}
-        }
-
-        return notFoundResponse();
       }
+
+      // otherwise, force a network level 404 response
+      return notFoundResponse();
     }
   }
   // TODO: Figure out CORS requests
+}
+
+async function safeRequest(
+  reqURL,
+  req,
+  options,
+  cacheResponse = false,
+  checkCacheFirst = false,
+  checkCacheLast = false,
+  useRequestDirectly = false,
+) {
+  var cache = await caches.open(cacheName);
+  var res;
+
+  if (checkCacheFirst) {
+    res = await caches.match(reqURL);
+    if (res) {
+      return res;
+    }
+  }
+
+  if (isOnline) {
+    try {
+      if (useRequestDirectly) {
+        res = await fetch(req, options); // This according to Kyle is a workaround for POST requests where in some cases req.body is not accessible
+      } else {
+        res = await fetch(reqURL, options);
+      }
+
+      if (res && (res.ok || res.type == "opaqueredirect")) {
+        if (cacheResponse) {
+          await cache.put(reqURL, res.clone());
+        }
+        return res;
+      }
+    } catch (err) {}
+  }
+
+  if (checkCacheLast) {
+    res = await cache.match(reqURL);
+    if (res) {
+      return res;
+    }
+  }
 }
 
 function notFoundResponse() {

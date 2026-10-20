@@ -81,6 +81,10 @@
       // evt.ports[0] is a specific message channel port that the service worker is listening on
       // and it is the target that we post message to
       sendStatusUpdate(evt.ports && evt.ports[0]);
+    } else if (data == "force-logout") {
+      document.cookie = "isLoggedIn=";
+      isLoggedIn = false;
+      sendStatusUpdate();
     }
   }
 

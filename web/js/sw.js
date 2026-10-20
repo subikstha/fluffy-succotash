@@ -1,6 +1,6 @@
 "use strict";
 
-const version = 7;
+const version = 8;
 var isOnline = true;
 var isLoggedIn = false;
 var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
@@ -92,6 +92,12 @@ async function router(req) {
     // are we making an API request?
     if (/^\/api\/.+$/.test(reqURL)) {
       // checks if reqURL starts with /api/ and has at least one character after it
+      let fetchOptions = {
+        method: req.method,
+        headers: req.headers,
+        credentials: "same-origin",
+        cache: "no-store",
+      };
       let res = await safeRequest(
         reqURL,
         req,

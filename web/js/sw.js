@@ -142,9 +142,118 @@ async function router(req) {
     else if (req.headers.get("Accept").includes("text/html")) {
       console.log("Requesting a page");
       // login aware requests?
+
+      let fetchOptions = {
+        method: req.method,
+        headers: req.headers,
+        cache: "no-store",
+      };
+
       if (/^\/(?:login|logout|add-post)$/.test(reqURL)) {
-        // TODO:
+        // NOTE: /login redirects itself to the add-post page if the user is logged in
+        if (reqURL == "/login") {
+          if (isOnline) {
+            let fetchOptions = {
+              method: req.method,
+              headers: req.headers,
+              cache: "no-store",
+              credentials: "same-origin",
+              redirect: "manual",
+            };
+
+            let res = await safeRequest(reqURL, req, fetchOptions);
+            if (res) {
+              if (res.type == "opaqueredirect") {
+                return Response.redirect("/add-post", 307);
+              }
+              return res;
+            }
+
+            if (isLoggedIn) {
+              return Response.redirect("/add-post", 307);
+            }
+
+            res = await cache.match("/login");
+            if (res) {
+              return res;
+            }
+
+            return Response.redirect("/", 307);
+          } else if (isLoggedIn) {
+            return Response.redirect("/add-post", 307);
+          } else {
+            res = await cache.match("/login");
+            if (res) {
+              return res;
+            }
+            return cache.match("/offline");
+          }
+        } else if (reqURL == "/logout") {
+          if (isOnline) {
+            let fetchOptions = {
+              method: req.method,
+              headers: req.headers,
+              cache: "no-store",
+              credentials: "same-origin",
+              redirect: "manual",
+            };
+            let res = await safeRequest(reqURL, req, fetchOptions);
+            if (res) {
+              if (res.type == "opaqueredirect") {
+                return Response.redirect("/", 307);
+              }
+              return res;
+            }
+            if (isLoggedIn) {
+              // Pretend as we logged out
+              isLoggedIn = false;
+              await sendMessage("force-logout"); // Send the message to the page to tell the page to delete the cookie
+              await delay(100); // wait 100ms to ensure the cookie is actually deleted
+            }
+            return Response.redirect("/", 307); // Redirect to the home page as if you have actually done a full logout
+          } else if (isLoggedIn) {
+            // Pretend as we logged out
+            isLoggedIn = false;
+            await sendMessage("force-logout"); // Send the message to the page to tell the page to delete the cookie
+            await delay(100); // wait 100ms to ensure the cookie is actually deleted
+            return Response.redirect("/", 307);
+          } else {
+            return Response.redirect("/", 307);
+          }
+        } else if (reqURL == "/add-post") {
+          if (isOnline) {
+            let fetchOptions = {
+              method: req.method,
+              headers: req.headers,
+              cache: "no-store",
+              credentials: "same-origin",
+            };
+
+            let res = await safeRequest(reqURL, req, fetchOptions, true, true);
+            if (res) {
+              return res;
+            }
+            res = await cache.match(isLoggedIn ? "/add-post" : "/login");
+            if (res) {
+              return res;
+            }
+            return Response.redirect("/", 307);
+          } else if (isLoggedIn) {
+            res = await cache.match("/add-post");
+            if (res) {
+              return res;
+            }
+            return cache.match("/offline");
+          } else {
+            res = await cache.match("/login");
+            if (res) {
+              return res;
+            }
+            return cache.match("/offline");
+          }
+        }
       }
+
       // otherwise just use "network and cache"
       else {
         let fetchOptions = {

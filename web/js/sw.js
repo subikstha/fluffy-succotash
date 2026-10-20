@@ -1,11 +1,11 @@
 "use strict";
 
-const version = 8;
+const version = 9;
 var isOnline = true;
 var isLoggedIn = false;
 var cacheName = `ramblings-${version}`; // String name to refer to collection of cached items
 // When version number updates, all cached items are gonna re cached under a new cache name and the old caches are gonna go away
-
+var allPostsCaching = false;
 // Here according to Kyle we donot have to specify extension for pages like about.html etc since the server is doing URL rewriting
 var urlsToCache = {
   loggedOut: [
@@ -40,6 +40,7 @@ async function main() {
   await sendMessage({ requestStatusUpdate: true });
   // Also cache the responses whenever we restart the service worker in case we have anything missing from the cache
   await cacheLoggedOutFiles();
+  return cacheAllPosts();
 }
 
 async function onInstall(evt) {
@@ -449,4 +450,97 @@ async function cacheLoggedOutFiles(forceReload = false) {
       } catch (err) {}
     }),
   );
+}
+
+async function cacheAllPosts(forceReload = false) {
+  // already caching posts?
+  if (allPostsCaching) {
+    return;
+  }
+  allPostsCaching = true;
+  await delay(5000); // Delay 5s to wait for initialization and initial page load to happen
+
+  var cache = await caches.open(cacheName);
+  var postIDs;
+
+  try {
+    if (isOnline) {
+      let fetchOptions = {
+        method: "GET",
+        cache: "no-store",
+        credentials: "omit",
+      };
+      let res = await fetch("/api/get-posts", fetchOptions);
+      if (res && res.ok) {
+        await cache.put("/api/get-posts", res.clone());
+        postIDs = await res.json();
+        console.log("These are the post ids", postIDs);
+      }
+    } else {
+      let res = await cache.match("/api/get-posts");
+      if (res) {
+        let resCopy = res.clone();
+        postIDs = await res.json();
+      }
+      // caching not started, try to start again (later)
+      else {
+        allPostsCaching = false;
+        return cacheAllPosts(forceReload);
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+
+  if (postIDs && postIDs.length > 0) {
+    return cachePost(postIDs.shift());
+  }
+
+  async function cachePost(postID) {
+    var postURL = `/post/${postID}`;
+    var needCaching = true;
+
+    if (!forceReload) {
+      let res = await cache.match(postURL);
+      if (res) {
+        needCaching = false;
+      }
+    }
+
+    if (needCaching) {
+      await delay(10000); // Delay so as to not send too many network requests
+      if (isOnline) {
+        try {
+          let fetchOptions = {
+            method: "GET",
+            cache: "no-store",
+            credentials: "omit",
+          };
+          let res = await fetch(postURL, fetchOptions);
+          if (res && res.ok) {
+            await cache.put(postURL, res.clone());
+            needCaching = false;
+          }
+        } catch (err) {}
+      }
+
+      // if failed, try caching this post again?
+      if (needCaching) {
+        return cachePost(postID);
+      }
+
+      // any more posts?
+      if (postIDs.length > 0) {
+        return cachePost(postIDs.shift());
+      } else {
+        allPostsCaching = false;
+      }
+    }
+  }
+}
+
+function delay(ms) {
+  return new Promise(function c(res) {
+    setTimeout(res, ms);
+  });
 }
